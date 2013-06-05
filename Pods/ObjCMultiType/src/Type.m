@@ -7,6 +7,18 @@
 
 #import "Type.h"
 #import "Entity.h"
+#import <objc/runtime.h>
+
+
+BOOL rt_isSubclassOf (Class child, Class parent)
+{
+    Class curClass = child;
+    
+    while (curClass != Nil && curClass != parent) {
+        curClass = class_getSuperclass(curClass);
+    }
+    return (child == parent);
+}
 
 @interface Type ()
 @property (strong, readwrite, nonatomic) NSMutableSet *includedTypes;
@@ -47,7 +59,8 @@ static NSMutableDictionary *type_cache = nil;
 + typeFor:typeDesignation
 {
     // Its a Class proper
-    if ([typeDesignation respondsToSelector:@selector(isSubclassOfClass:)]) {
+    NSString *name = NSStringFromClass(typeDesignation);
+    if (name) {
         return [self typeForClass:(Class)typeDesignation];
     }
     // If already a Type make sure its in our cache
@@ -95,7 +108,12 @@ static NSMutableDictionary *type_cache = nil;
 
 - typeInstancesRespondToSelector:(SEL)aSelector;
 {
-    if ([self.implClass instancesRespondToSelector:aSelector])
+//    Method m = class_getInstanceMethod([self class], aSelector);
+//    if (m) {
+//        return self;
+//    }
+
+    if (class_getInstanceMethod(self.implClass, aSelector))
         return self;
     
     for (Type *t in self.includedTypes) {
@@ -136,7 +154,7 @@ static NSMutableDictionary *type_cache = nil;
     if (aType == self)
         return YES;
     
-    if ([self.implClass isSubclassOfClass:aType.implClass])
+    if (rt_isSubclassOf (self.implClass, aType.implClass))
         return YES;
     
     for (Type *t in self.includedTypes) {

@@ -8,17 +8,28 @@
 
 #import "entity_i.h"
 #import "Type.h"
+#import "Entity.h"
 
 
 @implementation entity_i
 
-- (id)init{
+- (id)init {
     self = [super init];
     guid = CFUUIDCreate(NULL);
     weakProperties = [NSMapTable strongToWeakObjectsMapTable];
     strongProperties = [NSMapTable strongToStrongObjectsMapTable];
     e_types = [NSOrderedSet orderedSet];
     return self;
+}
+
+- clone
+{
+    entity_i *ent = [entity_i alloc];
+    guid = CFUUIDCreate(NULL);
+    ent->weakProperties = [weakProperties copy];
+    ent->strongProperties = [strongProperties copy];
+    ent->e_types = [e_types copy];
+    return ent;
 }
 
 - (NSString*)description
@@ -54,14 +65,14 @@
     return CFBridgingRelease(string);
 }
 
-- (BOOL)conformsToProtocolType:(Protocol*)protocol;
-{
-    for (Type *t in e_types) {
-        if ([t conformsToTypeProtocol:protocol])
-            return YES;
-    }
-    return NO;
-}
+//- (BOOL)conformsToProtocolType:(Protocol*)protocol;
+//{
+//    for (Type *t in e_types) {
+//        if ([t conformsToTypeProtocol:protocol])
+//            return YES;
+//    }
+//    return NO;
+//}
 
 - (id)valueForKey:(NSString *)key
 {
@@ -99,25 +110,44 @@
     }
 }
 
-- (void)removeIncludedType:(Type*)superType;
+//- (void)removeIncludedType:(Type*)superType;
+//{
+//    [(NSMutableSet*)e_types removeObject:superType];
+//}
+
+//- (void)includeType:(Type*)aType;
+//{
+//    if ([e_types containsObject:aType]) {
+//        return;
+//    }
+//    
+//    // remove redundant types
+//    NSMutableOrderedSet *toKeep = [NSMutableOrderedSet orderedSet];
+//    for (Type *t in e_types) {
+//        if (![aType doesIncludeType:t])
+//            [toKeep addObject:t];
+//    }
+//    [toKeep addObject:aType];
+//    e_types = toKeep;
+//}
+
+
+- (BOOL)hasAnyValueOfType:(Type*)type;
 {
-    [(NSMutableSet*)e_types removeObject:superType];
+    for (id item in strongProperties) {
+        if ([item isKindOfType:type])
+            return YES;
+    }
+    for (id item in weakProperties) {
+        if ([item isKindOfType:type])
+            return YES;
+    }
+    return NO;
 }
 
-- (void)includeType:(Type*)aType;
+-(NSEnumerator*)enumeratorForValuesOfType:(Type*)type;
 {
-    if ([e_types containsObject:aType]) {
-        return;
-    }
-    
-    // remove redundant types
-    NSMutableOrderedSet *toKeep = [NSMutableOrderedSet orderedSet];
-    for (Type *t in e_types) {
-        if (![aType doesIncludeType:t])
-            [toKeep addObject:t];
-    }
-    [toKeep addObject:aType];
-    e_types = toKeep;
+    return nil;
 }
 
 @end

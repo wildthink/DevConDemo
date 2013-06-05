@@ -21,11 +21,18 @@
     NSMapTable *weakProperties;
 }
 
-- (NSString *)guidString;
-- (BOOL)conformsToProtocolType:(Protocol*)protocol;
+- clone;
 
-- (void)includeType:ctype;
-- (void)removeIncludedType:(Type*)superType;
+- (NSString *)guidString;
+//- (BOOL)conformsToProtocolType:(Protocol*)protocol;
+
+//- (void)includeType:ctype;
+//- (void)removeIncludedType:(Type*)superType;
+
 - (void)setValue:(id)value forKey:(NSString *)key policy:(objc_AssociationPolicy)policy;
+
+- (BOOL)hasAnyValueOfType:(Type*)type;
+
+-(NSEnumerator*)enumeratorForValuesOfType:(Type*)type;
 
 @end

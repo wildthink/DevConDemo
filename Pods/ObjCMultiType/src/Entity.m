@@ -9,7 +9,7 @@
 #import "Type.h"
 #import "entity_i.h"
 #import "Entity+DynamicAccessors.h"
-
+#import "EXTRuntimeExtensions.h"
 #import <objc/runtime.h>
 
 @interface entity_i (EntityPrivate)
@@ -22,10 +22,21 @@ static BOOL _WTIsProtocol (id type) {
     return (name != nil);
 }
 
-static BOOL _WTIsClass (id type) {
+static BOOL WTIsClass (id type) {
     NSString *name = NSStringFromClass(type);
     return (name != nil);
 }
+
+
+//BOOL rt_isSubclassOf (Class child, Class parent)
+//{
+//    Class curClass = child;
+//    
+//    while (curClass != Nil && curClass != parent) {
+//        curClass = class_getSuperclass(curClass);
+//    }
+//    return (child == parent);
+//}
 
 static Class WTAsClass (id type) {
     
@@ -35,7 +46,7 @@ static Class WTAsClass (id type) {
         t_class = NSClassFromString(type);
     } else if ([type isKindOfClass:[Type class]]) {
         t_class = ((Type*)type).implClass;
-    } else if (_WTIsClass(type)){
+    } else if (WTIsClass(type)){
         t_class = (Class)type;
     } else {
         t_class = Nil;
@@ -54,7 +65,12 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
 //////////////////////////  ENTITY  /////////////////////////////////////////
 
 @interface Entity()
-    @property (strong, nonatomic) entity_i *internal;
+@property (strong, nonatomic) entity_i *internal;
+@property (readwrite, nonatomic) NSOrderedSet *types;
+
+- (void)includeType:(Type*)aType;
+- (void)removeIncludedType:(Type*)superType;
+
 @end
 
 
@@ -72,15 +88,21 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
 
 - init {
     _internal = [[entity_i alloc] init];
-    [_internal includeType:[Type typeForClass:[self class]]];
+    [self includeType:[Type typeForClass:[self class]]];
     return self;
 }
 
 - initWithEntity:(Entity*)anObject;
 {
     _internal= anObject->_internal;
-    [_internal includeType:[Type typeForClass:[self class]]];
+    [self includeType:[Type typeForClass:[self class]]];
     return self;
+}
+
+- clone {
+    Entity *ent = [Entity alloc];
+    ent->_internal = [_internal clone];
+    return ent;
 }
 
 - (CFUUIDRef)guid {
@@ -95,10 +117,31 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
     return (_internal->preferredType ? _internal->preferredType : [_internal->e_types firstObject]);
 }
 
-- (void)disassociateFrom:(Type*)superType;
+- (void)removeIncludedType:(Type*)superType;
 {
-    [_internal removeIncludedType:superType];
+    [(NSMutableSet*)self.types removeObject:superType];
 }
+
+- (void)includeType:(Type*)aType;
+{
+    if ([self.types containsObject:aType]) {
+        return;
+    }
+
+    // remove redundant types
+    NSMutableOrderedSet *toKeep = [NSMutableOrderedSet orderedSet];
+    for (Type *t in self.types) {
+        if (![aType doesIncludeType:t])
+            [toKeep addObject:t];
+    }
+    [toKeep addObject:aType];
+    self.types = toKeep;
+}
+
+//- (void)disassociateFrom:(Type*)superType;
+//{
+//    [_internal removeIncludedType:superType];
+//}
 
 /**
  A Set of Types
@@ -107,16 +150,21 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
     return _internal->e_types;
 }
 
+- (void)setTypes:(NSOrderedSet *)types
+{
+    _internal->e_types = types;
+}
+
 - as_a:type
 {
     Type *t = [Type typeFor:type];
 
     if (t == nil)
         return nil;
-    
-    if ([[self class] isSubclassOfClass:t.implClass])
+
+    if (rt_isSubclassOf ([self class], t.implClass)) {
         return self;
-    
+    }
     for (Type *myType in _internal->e_types) {
         if ([myType doesIncludeType:t])
             return [myType instantiateEntity:self];
@@ -124,35 +172,75 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
     return nil;
 }
 
-- (BOOL)is_a:type
+-(BOOL)isOneOf:(NSArray*)types
 {
-    Type *t_type = [Type typeFor:type];
-    
-    if (t_type == nil)
-        return NO;
-    
-    if ([[self class] isSubclassOfClass:t_type.implClass])
-        return YES;
-    
-    for (Type *myType in _internal->e_types) {        
-        if ([myType doesIncludeType:t_type])
+    for (id type in types) {
+        Type *t_type = [Type typeFor:type];
+        if ([self isKindOfType:t_type])
             return YES;
     }
+    // else
     return NO;
 }
 
-- becomeTypeConformingToProtocol:(Protocol*)proto;
+- (BOOL)isKindOfType:(Type*)type;
+{    
+    if (type == nil)
+        return NO;
+    
+    if ([[self class] isSubclassOfClass:type.implClass])
+        return YES;
+    
+    for (Type *myType in _internal->e_types) {
+        if ([myType doesIncludeType:type])
+            return YES;
+    }
+    return NO;    
+}
+
+- (BOOL)is_a:type
+{
+    if ([type isKindOfClass:[NSArray class]]) {
+        return [self isOneOf:type];
+    }
+    // else
+    Type *t_type = [Type typeFor:type];
+    return [self isKindOfType:t_type];
+}
+
+-(BOOL)hasAnyValueOfType:(id)type
+{
+    Type *t_type = [Type typeFor:type];
+    return [_internal hasAnyValueOfType:t_type];
+}
+
+- (Class)classSupportingProtocol:(Protocol *)aProtocol
 {
     Class classToBe = Nil;
     
     for (Type *myType in _internal->e_types) {
-        if ([myType conformsToTypeProtocol:proto]) {
+        if ([myType conformsToTypeProtocol:aProtocol]) {
             classToBe = myType.implClass;
             break;
         }
     }
+    return classToBe;
+}
+
+- (BOOL)conformsToProtocol:(Protocol *)aProtocol
+{
+    Class classToBe = [self classSupportingProtocol:aProtocol];
+    return (classToBe != Nil);
+}
+
+- becomeTypeConformingToProtocol:(Protocol*)aProtocol;
+{
+    Class classToBe = [self classSupportingProtocol:aProtocol];
     return (classToBe ? [[classToBe class] entityWithEntity:self] : nil);
 }
+
+
+#pragma mark Forwarding support
 
 /**
  This is much less expensive alternative to forwardInvocation
@@ -160,19 +248,36 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
 
 - (id)forwardingTargetForSelector:(SEL)aSelector
 {
-    
     for (Type *myType in _internal->e_types) {
         if ([myType typeInstancesRespondToSelector:aSelector]) {
             return [self as_a:myType];
         }
     }
     // else
-    return [super forwardingTargetForSelector:aSelector];
+    return nil;
+//    return [super forwardingTargetForSelector:aSelector];
+}
+
+- (void)forwardInvocation:(NSInvocation *)anInvocation
+{
+    id entity = [self forwardingTargetForSelector:[anInvocation selector]];
+    if (entity) {
+        [anInvocation setTarget:entity];
+        [anInvocation invoke];
+    }
+    else {
+    
+    [[NSException exceptionWithName:@"Unrecognized Selector"
+                             reason:NSStringFromSelector([anInvocation selector])
+                           userInfo:nil] raise];
+//    [super forwardInvocation:anInvocation];
+    }
 }
 
 - (BOOL)respondsToSelector:(SEL)aSelector
 {
-    if ([super respondsToSelector:aSelector]) {
+    Method m = class_getInstanceMethod([self class], aSelector);
+    if (m) {
         return YES;
     }
     for (Type *myType in _internal->e_types) {
@@ -181,6 +286,16 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
         }
     }
     return NO;
+}
+
++ (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
+    // find the first target that responds to the specified selector
+        return ext_globalMethodSignatureForSelector(aSelector);    
+}
+
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
+    // find the first target that responds to the specified selector
+    return ext_globalMethodSignatureForSelector(aSelector);
 }
 
 /**
@@ -198,6 +313,23 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
         return self;
     // else
     return [t instantiateEntity:self];
+}
+
+- (void)adoptType:type
+{
+    if ([type isKindOfClass:[NSArray class]]) {
+        [self adoptTypes:type];
+    }
+    else {
+        [self includeType:type];
+    }
+}
+
+- (void)adoptTypes:(NSArray*)types;
+{
+    for (id type in types) {
+        [self includeType:type];
+    }
 }
 
 - (BOOL)is:(Entity *)otherEntity
@@ -226,7 +358,7 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
     return mstr;
 }
 
-#pragma mark KeyValueOverrides
+#pragma mark NSKeyValueCoding overrides
 
 - (id)valueForUndefinedKey:(NSString *)key
 {
@@ -250,6 +382,19 @@ static BOOL areGUIDSEqual (CFUUIDRef g1, CFUUIDRef g2) {
 - (void)setValue:(id)value forKey:(NSString *)key policy:(objc_AssociationPolicy)policy
 {
     [_internal setValue:value forKey:key policy:policy];
+}
+
+@end
+
+
+@implementation NSObject (TypeChecking)
+
+- (BOOL)isKindOfType:(Type*)type;
+{
+    if (type == nil)
+        return NO;
+    
+    return ([[self class] isSubclassOfClass:type.implClass]);
 }
 
 @end
