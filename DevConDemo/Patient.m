@@ -9,5 +9,5 @@
 #import "Patient.h"
 
 @implementation Patient
-
+@dynamic doctor;
 @end
